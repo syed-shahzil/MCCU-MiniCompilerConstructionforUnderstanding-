@@ -17,7 +17,7 @@ from __future__ import annotations
 from typing import Any
 
 from parser.base_parser import BaseParser
-from ast.nodes import create_delete_ast
+from compiler_ast.nodes import create_delete_ast
 from error_handling.exceptions import (
     MissingDeleteFromError,
     MissingTableNameError,

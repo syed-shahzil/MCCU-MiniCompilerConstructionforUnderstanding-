@@ -28,6 +28,7 @@ from dataclasses import dataclass, field
 
 from lexer.lexer import scan as lex_scan, RawToken, LexicalIssue
 from lexer.classifier import classify, get_display_category
+from config.token_types import TT_UNKNOWN
 
 
 @dataclass
@@ -48,27 +49,39 @@ class LexerResult:
 
     @property
     def has_lexical_errors(self) -> bool:
-        """True if any non-recovered lexical issues were found."""
-        return any(not i.recovered for i in self.lexical_issues)
+        """True if lexical issues or UNKNOWN tokens were found."""
+        return (
+            any(not i.recovered for i in self.lexical_issues)
+            or any(tt == TT_UNKNOWN for tt, _ in self.tokens)
+        )
 
     @property
     def token_count(self) -> int:
         return len(self.tokens)
 
-    def get_display_rows(self) -> list[tuple[int, str, str, str]]:
+    def get_display_rows(self) -> list[tuple[int, str, str, str, str]]:
         """
         Return token data formatted for GUI table display.
 
         Returns:
-            List of (position, lexeme, token_type, category) tuples.
-            position is 1-indexed for user-friendly display.
+            List of (index, line_col, lexeme, token_type, category) tuples.
+            index is 1-indexed, while line_col shows the source location.
         """
         rows = []
         for i, (tt, tv) in enumerate(self.tokens, start=1):
             lexeme = str(tv)
             category = get_display_category(tt)
-            rows.append((i, lexeme, tt, category))
+            raw_pos = self.raw_tokens[i - 1].position if i - 1 < len(self.raw_tokens) else 0
+            rows.append((i, self._format_line_col(raw_pos), lexeme, tt, category))
         return rows
+
+    def _format_line_col(self, position: int) -> str:
+        """Return a user-friendly 1-based line/column string for a source index."""
+        safe_pos = max(0, min(position, len(self.query)))
+        line = self.query.count("\n", 0, safe_pos) + 1
+        line_start = self.query.rfind("\n", 0, safe_pos)
+        column = safe_pos + 1 if line_start == -1 else safe_pos - line_start
+        return f"L{line}:C{column}"
 
     def __repr__(self) -> str:
         return (

@@ -63,7 +63,7 @@ class BaseParser(ABC):
             MissingValueError:       If no value follows the operator.
         """
         from error_handling.exceptions import InvalidWhereClauseError
-        from ast.nodes import create_where_node
+        from compiler_ast.nodes import create_where_node
         from config.token_types import COMPARISON_OPERATOR_TYPES
 
         if not self._cursor.match("WHERE"):

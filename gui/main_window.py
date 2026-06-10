@@ -31,6 +31,7 @@ from gui.diagnostics_panel import DiagnosticsPanel
 from lexer.pipeline import run_lexer
 from parser.parser_manager import run_parser
 from error_handling.diagnostics import DiagnosticsCollector
+from compiler_ast.nodes import create_error_ast
 from config.grammar_rules import get_grammar
 from utils.formatting import statement_label, status_summary
 
@@ -68,8 +69,9 @@ class MainWindow:
     """
 
     APP_TITLE   = "MCCU — Mini Compiler Construction for Understanding"
+    # Keep the app large for demos, but still inside the usable desktop area.
     MIN_WIDTH   = 1100
-    MIN_HEIGHT  = 700
+    MIN_HEIGHT  = 660
 
     def __init__(self, root: tk.Tk) -> None:
         self._root = root
@@ -84,19 +86,36 @@ class MainWindow:
 
     def _setup_window(self) -> None:
         self._root.title(self.APP_TITLE)
-        self._root.minsize(self.MIN_WIDTH, self.MIN_HEIGHT)
-        self._root.geometry("1280x820")
         self._root.configure(bg=Colors.BG_DARK)
 
-        # Center on screen
-        self._root.update_idletasks()
-        w = self._root.winfo_width()
-        h = self._root.winfo_height()
+        # Responsive startup size: large enough for screenshots, but always
+        # kept inside the visible screen area so the bottom panels/footer do
+        # not go behind the taskbar or outside the display.
         sw = self._root.winfo_screenwidth()
         sh = self._root.winfo_screenheight()
-        x = (sw - w) // 2
-        y = (sh - h) // 2
-        self._root.geometry(f"+{x}+{y}")
+        margin_x = 40
+        margin_y = 90
+
+        available_w = max(960, sw - margin_x)
+        available_h = max(640, sh - margin_y)
+        win_w = min(1380, available_w)
+        win_h = min(860, available_h)
+
+        min_w = min(self.MIN_WIDTH, available_w)
+        min_h = min(self.MIN_HEIGHT, available_h)
+        self._root.minsize(min_w, min_h)
+
+        x = max((sw - win_w) // 2, 0)
+        y = max((sh - win_h) // 2, 0)
+        self._root.geometry(f"{int(win_w)}x{int(win_h)}+{int(x)}+{int(y)}")
+
+        # On Windows this maximizes inside the usable work area (not true
+        # fullscreen), giving the token table and AST maximum space while still
+        # keeping the taskbar/bottom content visible.
+        try:
+            self._root.state("zoomed")
+        except tk.TclError:
+            pass
 
     # ------------------------------------------------------------------
     # UI Construction
@@ -122,7 +141,7 @@ class MainWindow:
         border.pack(fill="x")
 
         # Title area
-        title_row = tk.Frame(header, bg=Colors.BG_DARK, padx=28, pady=18)
+        title_row = tk.Frame(header, bg=Colors.BG_DARK, padx=18, pady=6)
         title_row.pack(fill="x")
 
         # Left: title + subtitle
@@ -161,12 +180,12 @@ class MainWindow:
 
     def _build_input_section(self, parent: tk.Frame) -> None:
         """Query editor with action buttons and example loader."""
-        section = tk.Frame(parent, bg=Colors.BG_DARK, padx=20, pady=14)
+        section = tk.Frame(parent, bg=Colors.BG_DARK, padx=14, pady=4)
         section.pack(fill="x")
 
         # Row: label + example loader
         top_row = tk.Frame(section, bg=Colors.BG_DARK)
-        top_row.pack(fill="x", pady=(0, 6))
+        top_row.pack(fill="x", pady=(0, 3))
 
         tk.Label(
             top_row,
@@ -203,7 +222,7 @@ class MainWindow:
 
         self._editor = tk.Text(
             editor_frame,
-            height=6,
+            height=2,
             font=Fonts.CODE_LARGE,
             bg=Colors.BG_INPUT,
             fg=Colors.TEXT_CODE,
@@ -211,8 +230,8 @@ class MainWindow:
             selectbackground=Colors.ROW_SELECT,
             selectforeground=Colors.ROW_SELECT_FG,
             relief="flat",
-            padx=14,
-            pady=10,
+            padx=12,
+            pady=5,
             wrap="word",
             undo=True,
         )
@@ -221,7 +240,7 @@ class MainWindow:
         self._editor.bind("<Control-Return>", lambda e: self._run_analysis())
 
         # Button row
-        btn_row = tk.Frame(section, bg=Colors.BG_DARK, pady=10)
+        btn_row = tk.Frame(section, bg=Colors.BG_DARK, pady=2)
         btn_row.pack(fill="x")
 
         # Analyze button
@@ -252,7 +271,7 @@ class MainWindow:
 
     def _build_stats_bar(self, parent: tk.Frame) -> None:
         """Compilation stats bar between editor and results."""
-        bar = tk.Frame(parent, bg=Colors.BG_CARD, padx=20, pady=10)
+        bar = tk.Frame(parent, bg=Colors.BG_CARD, padx=14, pady=4)
         bar.pack(fill="x")
 
         self._stat_vars: dict[str, tk.StringVar] = {}
@@ -265,7 +284,7 @@ class MainWindow:
         ]
 
         for i, (label, default) in enumerate(stats):
-            cell = tk.Frame(bar, bg=Colors.BG_CARD, padx=16, pady=2)
+            cell = tk.Frame(bar, bg=Colors.BG_CARD, padx=12, pady=1)
             cell.pack(side="left", fill="y")
 
             tk.Label(
@@ -302,11 +321,14 @@ class MainWindow:
         tk.Frame(container, bg=Colors.BORDER, height=1).pack(fill="x")
 
         inner = tk.Frame(container, bg=Colors.BG_DARK)
-        inner.pack(fill="both", expand=True, padx=16, pady=12)
+        inner.pack(fill="both", expand=True, padx=10, pady=4)
+        inner.grid_rowconfigure(0, weight=1)
+        inner.grid_columnconfigure(0, weight=1)
+        inner.grid_columnconfigure(1, weight=0, minsize=238)
 
         # ---- Left: Notebook ----
         notebook_frame = tk.Frame(inner, bg=Colors.BG_DARK)
-        notebook_frame.pack(side="left", fill="both", expand=True)
+        notebook_frame.grid(row=0, column=0, sticky="nsew")
 
         self._notebook = ttk.Notebook(notebook_frame, style="TNotebook")
         self._notebook.pack(fill="both", expand=True)
@@ -331,9 +353,13 @@ class MainWindow:
         self._diag_panel.pack(fill="both", expand=True)
 
         # ---- Right: Grammar sidebar ----
-        sidebar = tk.Frame(inner, bg=Colors.BG_CARD, width=280, padx=14, pady=12)
-        sidebar.pack(side="right", fill="y", padx=(14, 0))
-        sidebar.pack_propagate(False)
+        # Grid rows keep the Pipeline Steps visible. The grammar box is the only
+        # part that is allowed to shrink, and it has its own internal scrollbar.
+        sidebar = tk.Frame(inner, bg=Colors.BG_CARD, width=238, padx=8, pady=8)
+        sidebar.grid(row=0, column=1, sticky="nsew", padx=(10, 0))
+        sidebar.grid_propagate(False)
+        sidebar.grid_columnconfigure(0, weight=1)
+        sidebar.grid_rowconfigure(1, weight=1)
 
         tk.Label(
             sidebar,
@@ -341,72 +367,75 @@ class MainWindow:
             font=Fonts.UI_LABEL,
             bg=Colors.BG_CARD,
             fg=Colors.TEXT_ACCENT,
-        ).pack(anchor="w", pady=(0, 8))
+        ).grid(row=0, column=0, sticky="w", pady=(0, 5))
+
+        grammar_box = tk.Frame(sidebar, bg=Colors.BORDER, padx=1, pady=1)
+        grammar_box.grid(row=1, column=0, sticky="nsew", pady=(0, 6))
+        grammar_box.rowconfigure(0, weight=1)
+        grammar_box.columnconfigure(0, weight=1)
 
         self._grammar_text = tk.Text(
-            sidebar,
-            height=10,
+            grammar_box,
+            height=5,
             font=Fonts.CODE_SMALL,
             bg=Colors.BG_INPUT,
             fg=Colors.TEXT_SECONDARY,
             relief="flat",
-            padx=8,
-            pady=6,
+            padx=7,
+            pady=5,
             wrap="word",
             state="disabled",
             cursor="arrow",
         )
-        self._grammar_text.pack(fill="both", expand=True)
+        grammar_scroll = ttk.Scrollbar(grammar_box, orient="vertical", command=self._grammar_text.yview)
+        self._grammar_text.configure(yscrollcommand=grammar_scroll.set)
+        self._grammar_text.grid(row=0, column=0, sticky="nsew")
+        grammar_scroll.grid(row=0, column=1, sticky="ns")
 
-        tk.Frame(sidebar, bg=Colors.BORDER, height=1).pack(fill="x", pady=10)
+        pipeline_box = tk.Frame(sidebar, bg=Colors.BG_CARD)
+        pipeline_box.grid(row=2, column=0, sticky="ew")
+
+        tk.Frame(pipeline_box, bg=Colors.BORDER, height=1).pack(fill="x", pady=(0, 5))
 
         tk.Label(
-            sidebar,
+            pipeline_box,
             text="Pipeline Steps",
             font=Fonts.UI_LABEL,
             bg=Colors.BG_CARD,
             fg=Colors.TEXT_ACCENT,
-        ).pack(anchor="w", pady=(0, 6))
+        ).pack(anchor="w", pady=(0, 3))
 
         pipeline_steps = [
-            ("1", "Lexical Analysis",   "Tokenize + classify"),
-            ("2", "Syntax Parsing",     "Build parse tree"),
-            ("3", "AST Construction",   "Structured output"),
-            ("4", "Diagnostic Report",  "Errors & warnings"),
+            ("1", "Lexical", "Tokenize + classify"),
+            ("2", "Syntax", "Parser selection"),
+            ("3", "AST", "Structured tree"),
+            ("4", "Diagnostics", "Errors/warnings"),
         ]
         for num, name, desc in pipeline_steps:
-            step_row = tk.Frame(sidebar, bg=Colors.BG_CARD, pady=3)
-            step_row.pack(fill="x")
+            step_row = tk.Frame(pipeline_box, bg=Colors.BG_CARD)
+            step_row.pack(fill="x", pady=(0, 2))
 
             tk.Label(
                 step_row,
                 text=num,
-                font=("Consolas", 9, "bold"),
+                font=("Consolas", 8, "bold"),
                 bg=Colors.ACCENT_DIM,
                 fg=Colors.TEXT_ACCENT,
                 width=2,
                 relief="flat",
-                padx=4,
-            ).pack(side="left", anchor="n", padx=(0, 8))
-
-            right = tk.Frame(step_row, bg=Colors.BG_CARD)
-            right.pack(side="left", fill="x", expand=True)
+                padx=2,
+            ).pack(side="left", anchor="n", padx=(0, 5))
 
             tk.Label(
-                right,
-                text=name,
-                font=("Segoe UI", 9, "bold"),
-                bg=Colors.BG_CARD,
-                fg=Colors.TEXT_PRIMARY,
-            ).pack(anchor="w")
-
-            tk.Label(
-                right,
-                text=desc,
+                step_row,
+                text=f"{name} — {desc}",
                 font=("Segoe UI", 8),
                 bg=Colors.BG_CARD,
-                fg=Colors.TEXT_MUTED,
-            ).pack(anchor="w")
+                fg=Colors.TEXT_PRIMARY,
+                wraplength=190,
+                justify="left",
+            ).pack(side="left", fill="x", expand=True, anchor="w")
+
 
     # ------------------------------------------------------------------
     # Compiler Pipeline
@@ -429,21 +458,69 @@ class MainWindow:
         lex_result = run_lexer(query)
         collector.add_from_lexical_issues(lex_result.lexical_issues)
 
+        token_rows = lex_result.get_display_rows()
+
         if not lex_result.tokens:
             self._token_panel.clear()
-            self._ast_panel.clear()
+            error_ast = create_error_ast(
+                phase="Lexical Analysis",
+                message="Lexical error: no valid tokens were generated.",
+                details=[d.message for d in collector.get_all()] or ["Input is empty or could not be tokenized."],
+            )
+            self._ast_panel.populate(error_ast)
             self._diag_panel.populate(collector)
-            self._update_stats(stmt="—", parser="—", tokens=0, nodes=0, success=False)
-            self._set_status("Lexical error — no tokens", Colors.ERROR)
+            self._update_stats(
+                stmt="—",
+                parser="Not run",
+                tokens=0,
+                nodes=self._count_ast_nodes(error_ast),
+                success=False,
+            )
+            self._set_status("✖  Lexical error — no tokens", Colors.ERROR)
+            self._notebook.select(2)
+            self._update_grammar("UNKNOWN")
             return
 
-        # Populate token table
-        self._token_panel.populate(lex_result.get_display_rows())
+        # Populate token table before parsing so invalid tokens are visible.
+        self._token_panel.populate(token_rows)
 
         # Add missing-semicolon warning
         last_type = lex_result.tokens[-1][0] if lex_result.tokens else ""
         if last_type != "SEMICOLON":
             collector.add_warning("W002", "Statement is missing a trailing semicolon")
+
+        invalid_tokens = self._collect_invalid_tokens(token_rows)
+        if lex_result.has_lexical_errors or invalid_tokens:
+            if invalid_tokens and not any(d.code == "L001" for d in collector.get_all()):
+                collector.add_error(
+                    "L001",
+                    "Lexical error: unknown token found",
+                    detail="Tokenizer produced UNKNOWN token(s).",
+                )
+
+            error_ast = create_error_ast(
+                phase="Lexical Analysis",
+                message="Lexical error: unknown/invalid token found. Parsing stopped safely.",
+                invalid_tokens=invalid_tokens,
+                details=[d.message for d in collector.get_all()],
+            )
+            self._ast_panel.populate(error_ast)
+            self._diag_panel.populate(collector)
+            self._update_stats(
+                stmt=lex_result.tokens[0][0] if lex_result.tokens else "UNKNOWN",
+                parser="Not run",
+                tokens=lex_result.token_count,
+                nodes=self._count_ast_nodes(error_ast),
+                success=False,
+            )
+            self._set_status(
+                f"✖  Lexical error — {len(invalid_tokens)} invalid token(s)",
+                Colors.ERROR,
+            )
+            # Keep the Tokens tab visible so the highlighted UNKNOWN token is seen immediately.
+            self._notebook.select(0)
+            self._update_grammar("UNKNOWN")
+            return
 
         # ---- Phase 2: Syntax Parsing ----
         parse_result = run_parser(lex_result.tokens)
@@ -454,8 +531,18 @@ class MainWindow:
         # ---- Phase 3: AST + Diagnostics ----
         if parse_result.success and parse_result.ast:
             self._ast_panel.populate(parse_result.ast)
+            display_node_count = parse_result.ast_node_count
         else:
-            self._ast_panel.clear()
+            message = "Parsing failed due to invalid syntax."
+            if parse_result.error:
+                message = str(parse_result.error).split("] ", 1)[-1]
+            error_ast = create_error_ast(
+                phase="Syntax Parsing",
+                message=message,
+                details=["BrokenConnection: parser could not complete a valid AST."],
+            )
+            self._ast_panel.populate(error_ast)
+            display_node_count = self._count_ast_nodes(error_ast)
 
         if collector.is_clean() and parse_result.success:
             self._diag_panel.show_success()
@@ -464,7 +551,7 @@ class MainWindow:
 
         # ---- Stats bar ----
         token_count = lex_result.token_count
-        node_count  = parse_result.ast_node_count
+        node_count  = display_node_count
         self._update_stats(
             stmt=parse_result.statement_type,
             parser=parse_result.parser_name,
@@ -492,6 +579,30 @@ class MainWindow:
     # ------------------------------------------------------------------
     # UI Helpers
     # ------------------------------------------------------------------
+
+    def _collect_invalid_tokens(self, token_rows: list[tuple[int, str, str, str, str]]) -> list[dict[str, Any]]:
+        """Return UNKNOWN/invalid tokens in a shape suitable for the error AST."""
+        invalid: list[dict[str, Any]] = []
+        for index, line_col, lexeme, token_type, category in token_rows:
+            if token_type == "UNKNOWN" or category == "Unknown":
+                invalid.append({
+                    "index": index,
+                    "line_col": line_col,
+                    "lexeme": lexeme,
+                    "token_type": token_type,
+                    "category": category,
+                })
+        return invalid
+
+    def _count_ast_nodes(self, obj: Any, depth: int = 0) -> int:
+        """Small local AST-node counter used for visible error placeholder ASTs."""
+        if depth > 10:
+            return 1
+        if isinstance(obj, dict):
+            return 1 + sum(self._count_ast_nodes(v, depth + 1) for v in obj.values())
+        if isinstance(obj, list):
+            return sum(self._count_ast_nodes(item, depth + 1) for item in obj)
+        return 1
 
     def _update_stats(
         self,

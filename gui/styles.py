@@ -197,7 +197,7 @@ def apply_theme(root: tk.Tk) -> None:
         font=f.BTN_PRIMARY,
         borderwidth=0,
         focusthickness=0,
-        padding=(24, 10),
+        padding=(18, 7),
     )
     style.map(
         "Primary.TButton",
@@ -211,7 +211,7 @@ def apply_theme(root: tk.Tk) -> None:
         font=f.BTN_SMALL,
         borderwidth=1,
         relief="flat",
-        padding=(14, 8),
+        padding=(10, 5),
     )
     style.map(
         "Secondary.TButton",
@@ -231,7 +231,7 @@ def apply_theme(root: tk.Tk) -> None:
         background=c.BG_CARD,
         foreground=c.TEXT_SECONDARY,
         font=f.TAB_LABEL,
-        padding=(16, 8),
+        padding=(14, 6),
         borderwidth=0,
     )
     style.map(
@@ -250,6 +250,18 @@ def apply_theme(root: tk.Tk) -> None:
         rowheight=28,
         borderwidth=0,
     )
+    # Token table uses a slightly compact row height so demo queries can show
+    # all token rows without visible table scrollbars. Other Treeviews keep
+    # the original spacing.
+    style.configure(
+        "Token.Treeview",
+        background=c.BG_SURFACE,
+        foreground=c.TEXT_PRIMARY,
+        fieldbackground=c.BG_SURFACE,
+        font=f.CODE_MEDIUM,
+        rowheight=24,
+        borderwidth=0,
+    )
     style.configure(
         "Treeview.Heading",
         background=c.BG_CARD,
@@ -260,6 +272,11 @@ def apply_theme(root: tk.Tk) -> None:
     )
     style.map(
         "Treeview",
+        background=[("selected", c.ROW_SELECT)],
+        foreground=[("selected", c.ROW_SELECT_FG)],
+    )
+    style.map(
+        "Token.Treeview",
         background=[("selected", c.ROW_SELECT)],
         foreground=[("selected", c.ROW_SELECT_FG)],
     )

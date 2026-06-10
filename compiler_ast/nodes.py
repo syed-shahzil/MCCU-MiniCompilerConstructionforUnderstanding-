@@ -180,6 +180,35 @@ def create_update_ast(
     return node
 
 
+
+
+# ===========================================================================
+# Error / recovery nodes
+# ===========================================================================
+
+def create_error_ast(
+    *,
+    phase: str,
+    message: str,
+    invalid_tokens: list[dict[str, Any]] | None = None,
+    details: list[str] | None = None,
+) -> dict[str, Any]:
+    """
+    Build an AST placeholder for graceful GUI display when compilation fails.
+
+    This does not replace the real AST for valid input. It is only used when
+    lexical/syntax errors prevent normal parsing, so the AST panel can still
+    show where the pipeline broke instead of going blank.
+    """
+    return {
+        "type": "ERROR",
+        "phase": phase,
+        "message": message,
+        "invalid_tokens": invalid_tokens or [],
+        "details": details or [],
+    }
+
+
 # ===========================================================================
 # Shared clause nodes
 # ===========================================================================

@@ -21,7 +21,7 @@ from __future__ import annotations
 from typing import Any
 
 from parser.base_parser import BaseParser
-from ast.nodes import (
+from compiler_ast.nodes import (
     create_select_ast,
     create_order_by_node,
     create_aggregate_node,

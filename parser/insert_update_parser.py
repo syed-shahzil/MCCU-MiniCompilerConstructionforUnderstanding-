@@ -20,7 +20,7 @@ from __future__ import annotations
 from typing import Any
 
 from parser.base_parser import BaseParser
-from ast.nodes import create_insert_ast, create_update_ast
+from compiler_ast.nodes import create_insert_ast, create_update_ast
 from config.token_types import COMPARISON_OPERATOR_TYPES, OPERATOR_TYPE_TO_SYMBOL
 from error_handling.exceptions import (
     MissingIntoKeywordError,

@@ -12,10 +12,10 @@ Graph nodes are color-coded based on node type and can be panned by dragging.
 from __future__ import annotations
 import tkinter as tk
 from tkinter import ttk
-from typing import Any
+from typing import Any, Callable
 
 from gui.styles import Colors, Fonts
-from ast.visualizer import build_tree_nodes, render_text_tree, TreeNode
+from compiler_ast.visualizer import build_tree_nodes, render_text_tree, TreeNode
 
 
 # ===========================================================================
@@ -37,11 +37,15 @@ class GraphNode:
 class ASTVisualGraph(ttk.Frame):
     """
     Renders an AST as an interactive node-link tree diagram on a Canvas.
-    Supports click-and-drag panning.
+    Supports click-and-drag panning and zoom in/out controls.
     """
     def __init__(self, parent: Any, **kwargs: Any) -> None:
         super().__init__(parent, style="TFrame", **kwargs)
         self._root_node: GraphNode | None = None
+        self._zoom: float = 1.0
+        self._min_zoom: float = 0.65
+        self._max_zoom: float = 1.75
+        self._zoom_callback: Callable[[float], None] | None = None
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -57,11 +61,12 @@ class ASTVisualGraph(ttk.Frame):
         self.canvas.bind("<ButtonPress-1>", self._on_pan_start)
         self.canvas.bind("<B1-Motion>", self._on_pan_drag)
         self.canvas.bind("<Double-Button-1>", self._on_reset_view)
+        self.canvas.bind("<Control-MouseWheel>", self._on_ctrl_mousewheel)
 
         # Tip label
         tip = ttk.Label(
             self,
-            text="💡 Tip: Click and drag to pan the graph  ·  Double-click to reset view",
+            text="💡 Drag to pan  ·  Use + / − buttons or Ctrl+MouseWheel to zoom  ·  Double-click to reset position",
             style="Muted.TLabel",
             anchor="center",
             padding=(0, 4),
@@ -77,6 +82,42 @@ class ASTVisualGraph(ttk.Frame):
     def _on_reset_view(self, event: Any = None) -> None:
         self.canvas.xview_moveto(0)
         self.canvas.yview_moveto(0)
+
+    def _on_ctrl_mousewheel(self, event: Any) -> str:
+        if event.delta > 0:
+            self.zoom_in()
+        else:
+            self.zoom_out()
+        return "break"
+
+    def _scaled_font(self) -> tuple[Any, ...]:
+        family, size, *style = Fonts.CODE_SMALL
+        return (family, max(7, int(round(size * self._zoom))), *style)
+
+    def set_zoom_callback(self, callback: Callable[[float], None]) -> None:
+        """Register a small UI callback used to display the live zoom value."""
+        self._zoom_callback = callback
+        self._notify_zoom_changed()
+
+    def _notify_zoom_changed(self) -> None:
+        if self._zoom_callback is not None:
+            self._zoom_callback(self._zoom)
+
+    def set_zoom(self, zoom: float) -> None:
+        """Set graph zoom and redraw without changing the AST data."""
+        self._zoom = max(self._min_zoom, min(self._max_zoom, zoom))
+        self.draw_graph()
+        self._notify_zoom_changed()
+
+    def zoom_in(self) -> None:
+        self.set_zoom(self._zoom + 0.12)
+
+    def zoom_out(self) -> None:
+        self.set_zoom(self._zoom - 0.12)
+
+    def reset_zoom(self) -> None:
+        self.set_zoom(1.0)
+        self._on_reset_view()
 
     def populate(self, tree_nodes: list[TreeNode]) -> None:
         """Build hierarchical GraphNode structure from flat tree_nodes list."""
@@ -94,7 +135,9 @@ class ASTVisualGraph(ttk.Frame):
             label_upper = tn.label.upper()
             
             # Root keywords
-            if any(k in label_upper for k in ("SELECT", "DELETE", "DROP", "INSERT", "UPDATE")):
+            if any(k in label_upper for k in ("ERRORNODE", "INVALIDTOKENNODE", "BROKEN")):
+                tag_type = "error"
+            elif any(k in label_upper for k in ("SELECT", "DELETE", "DROP", "INSERT", "UPDATE")):
                 tag_type = "root"
             elif "→" in tn.label:
                 if any(k in label_upper for k in ("FROM", "TABLE", "NAME")):
@@ -127,14 +170,16 @@ class ASTVisualGraph(ttk.Frame):
         if not self._root_node:
             return
 
-        level_height = 80
-        sibling_gap = 24
+        z = self._zoom
+        level_height = 80 * z
+        sibling_gap = 24 * z
 
         # 1. Measure label text to determine sizes
         def measure(node: GraphNode) -> None:
-            char_width = 8.5
+            char_width = 8.5 * z
             text_len = len(node.label)
-            node.width = max(130.0, text_len * char_width + 24.0)
+            node.height = 36.0 * z
+            node.width = max(130.0 * z, text_len * char_width + 24.0 * z)
             for child in node.children:
                 measure(child)
 
@@ -192,9 +237,9 @@ class ASTVisualGraph(ttk.Frame):
                     node.x, node.y + node.height/2,
                     child.x, child.y - child.height/2,
                     fill=Colors.BORDER_LIGHT,
-                    width=2,
+                    width=max(1, int(round(2 * z))),
                     arrow=tk.LAST,
-                    arrowshape=(9, 11, 4),
+                    arrowshape=(max(6, int(9 * z)), max(7, int(11 * z)), max(3, int(4 * z))),
                 )
                 draw_connectors(child)
 
@@ -232,9 +277,13 @@ class ASTVisualGraph(ttk.Frame):
                 bg = Colors.BG_SURFACE
                 border = Colors.TOK_OPERATOR
                 fg = Colors.TOK_OPERATOR
+            elif node.tag_type == "error":
+                bg = Colors.BG_DARK
+                border = Colors.ERROR
+                fg = Colors.ERROR
 
             # Draw slightly rounded box using polygon smooth curves
-            r = 6.0
+            r = 6.0 * z
             points = [
                 x1 + r, y1,
                 x2 - r, y1,
@@ -249,7 +298,7 @@ class ASTVisualGraph(ttk.Frame):
                 points,
                 fill=bg,
                 outline=border,
-                width=1.5,
+                width=max(1, int(round(1.5 * z))),
                 smooth=True,
             )
 
@@ -258,7 +307,7 @@ class ASTVisualGraph(ttk.Frame):
                 node.x, node.y,
                 text=node.label,
                 fill=fg,
-                font=Fonts.CODE_SMALL,
+                font=self._scaled_font(),
                 justify="center",
             )
 
@@ -267,9 +316,10 @@ class ASTVisualGraph(ttk.Frame):
 
         draw_nodes(self._root_node)
 
-        # Adjust scroll region to contain the whole tree structure
+        # Adjust scroll region to contain the whole zoomed tree structure.
+        final_max_x = max(n.x + n.width/2 for n in all_nodes)
         max_y = max(n.y + n.height/2 for n in all_nodes)
-        self.canvas.configure(scrollregion=(0, 0, max_x + 60, max_y + 60))
+        self.canvas.configure(scrollregion=(0, 0, final_max_x + 60 * z, max_y + 60 * z))
 
 
 # ===========================================================================
@@ -300,7 +350,33 @@ class ASTPanel(ttk.Frame):
 
         # Radio button switcher
         self._view_mode = tk.StringVar(value="graph")
+        self._zoom_text = tk.StringVar(value="100%")
         
+        zoom_controls = ttk.Frame(hdr_frame, style="TFrame")
+        zoom_controls.pack(side="right", padx=(0, 8))
+
+        ttk.Button(
+            zoom_controls,
+            text="−",
+            width=3,
+            style="Secondary.TButton",
+            command=self._zoom_out,
+        ).pack(side="left", padx=1)
+        ttk.Button(
+            zoom_controls,
+            textvariable=self._zoom_text,
+            width=5,
+            style="Secondary.TButton",
+            command=self._zoom_reset,
+        ).pack(side="left", padx=1)
+        ttk.Button(
+            zoom_controls,
+            text="+",
+            width=3,
+            style="Secondary.TButton",
+            command=self._zoom_in,
+        ).pack(side="left", padx=1)
+
         switcher = ttk.Frame(hdr_frame, style="TFrame")
         switcher.pack(side="right", padx=(0, 10))
 
@@ -329,9 +405,13 @@ class ASTPanel(ttk.Frame):
         # ---- Card Content Container ----
         self.content_container = ttk.Frame(self, style="Card.TFrame")
         self.content_container.pack(fill="both", expand=True, padx=4, pady=(0, 4))
+        # Let the AST panel resize with the available notebook area instead of
+        # forcing a fixed height that can push the footer outside the screen.
+        self.content_container.pack_propagate(True)
 
         # View 1: Canvas Graph View
         self._graph_panel = ASTVisualGraph(self.content_container)
+        self._graph_panel.set_zoom_callback(self._update_zoom_text)
         self._graph_panel.pack(fill="both", expand=True)
 
         # View 2: Treeview List (start unpacked)
@@ -362,6 +442,7 @@ class ASTPanel(ttk.Frame):
         self._tree.tag_configure("value",   foreground=Colors.TOK_CONSTANT,   font=Fonts.CODE_SMALL)
         self._tree.tag_configure("table",   foreground=Colors.TOK_IDENTIFIER, font=Fonts.CODE_MEDIUM)
         self._tree.tag_configure("aggr",    foreground=Colors.TOK_OPERATOR,   font=Fonts.CODE_MEDIUM)
+        self._tree.tag_configure("error",   foreground=Colors.ERROR,          font=Fonts.CODE_MEDIUM)
 
         # Footer
         self._footer_var = tk.StringVar(value="No AST")
@@ -416,6 +497,27 @@ class ASTPanel(ttk.Frame):
     # Event Handlers & Helpers
     # ------------------------------------------------------------------
 
+    def _update_zoom_text(self, zoom: float) -> None:
+        self._zoom_text.set(f"{int(round(zoom * 100))}%")
+
+    def _zoom_in(self) -> None:
+        if self._view_mode.get() != "graph":
+            self._view_mode.set("graph")
+            self._on_view_changed()
+        self._graph_panel.zoom_in()
+
+    def _zoom_out(self) -> None:
+        if self._view_mode.get() != "graph":
+            self._view_mode.set("graph")
+            self._on_view_changed()
+        self._graph_panel.zoom_out()
+
+    def _zoom_reset(self) -> None:
+        if self._view_mode.get() != "graph":
+            self._view_mode.set("graph")
+            self._on_view_changed()
+        self._graph_panel.reset_zoom()
+
     def _on_view_changed(self) -> None:
         mode = self._view_mode.get()
         if mode == "tree":
@@ -428,6 +530,8 @@ class ASTPanel(ttk.Frame):
 
     def _tag_for(self, node: TreeNode, index: int) -> str:
         label = node.label.upper()
+        if "ERRORNODE" in label or "INVALIDTOKENNODE" in label or "BROKEN" in label:
+            return "error"
         if index == 0:
             return "root"
         if "→" in node.label:

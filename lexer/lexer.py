@@ -6,8 +6,8 @@ Character-level SQL scanner.
 Refactored from m1/SQL_Tokenizer_Project/tokenizer.py with the following
 improvements:
   - Returns (raw_tokens, errors) instead of printing and returning None
-  - Error recovery: unknown characters emit a warning and are skipped
-    (tokenization continues rather than halting)
+  - Error recovery: unknown characters are emitted as UNKNOWN raw tokens
+    so the GUI can display them and diagnostics can block success
   - Handles \\n, \\t as whitespace
   - Numeric literals parsed correctly (digits and dot)
   - Position tracking (character index) for each raw token
@@ -113,7 +113,7 @@ class Lexer:
                 self._scan_string_literal()
 
             elif char in self._ILLEGAL_CHARS:
-                self._handle_illegal_char(char)
+                self._handle_unknown_char(char, illegal=True)
 
             elif self._pos + 1 < len(self._query) and self._is_two_char_operator():
                 op = self._query[self._pos: self._pos + 2]
@@ -135,14 +135,11 @@ class Lexer:
                 self._scan_word()
 
             else:
-                # Unexpected character — recover by skipping
-                self._issues.append(LexicalIssue(
-                    code="L001",
-                    message=f"Unknown character '{char}' at position {self._pos}",
-                    position=self._pos,
-                    recovered=True,
-                ))
-                self._pos += 1
+                # Unexpected character — keep it visible as an UNKNOWN token
+                # instead of silently skipping it. Parsing is stopped later
+                # by the GUI/diagnostics layer, but tokenization continues
+                # so the user can see exactly what failed.
+                self._handle_unknown_char(char, illegal=False)
 
         return self._tokens, self._issues
 
@@ -209,13 +206,15 @@ class Lexer:
         two = self._query[self._pos: self._pos + 2]
         return two in {">=", "<=", "!=", "<>"}
 
-    def _handle_illegal_char(self, char: str) -> None:
-        """Record an error and skip an illegal character (recovery)."""
+    def _handle_unknown_char(self, char: str, *, illegal: bool = False) -> None:
+        """Record an invalid character and emit it as a visible UNKNOWN token."""
+        kind = "Illegal" if illegal else "Unknown"
+        self._tokens.append(RawToken(value=char, position=self._pos))
         self._issues.append(LexicalIssue(
             code="L001",
-            message=f"Illegal character '{char}' at position {self._pos} — skipped",
+            message=f"Lexical error: {kind.lower()} token '{char}' found at position {self._pos}",
             position=self._pos,
-            recovered=True,
+            recovered=False,
         ))
         self._pos += 1
 

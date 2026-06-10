@@ -164,6 +164,27 @@ def _build_update(ast: dict[str, Any], parent_id: str, nodes: list[TreeNode]) ->
         _add(nodes, f"{w['column']}  {w['operator']}  {w['value']}", where_id)
 
 
+def _build_error(ast: dict[str, Any], parent_id: str, nodes: list[TreeNode]) -> None:
+    root_id = _add(nodes, "ErrorNode", parent_id)
+    _add(nodes, f"Phase  →  {ast.get('phase', 'Unknown')}", root_id)
+    _add(nodes, f"Message  →  {ast.get('message', 'Compilation failed')}", root_id)
+
+    invalid_tokens = ast.get("invalid_tokens", [])
+    if invalid_tokens:
+        bad_id = _add(nodes, "Invalid Tokens", root_id)
+        for tok in invalid_tokens:
+            lexeme = tok.get("lexeme", "?")
+            token_type = tok.get("token_type", "UNKNOWN")
+            line_col = tok.get("line_col", "?")
+            _add(nodes, f"InvalidTokenNode  →  {lexeme!r}  ({token_type}, {line_col})", bad_id)
+
+    details = ast.get("details", [])
+    if details:
+        details_id = _add(nodes, "Details", root_id)
+        for detail in details:
+            _add(nodes, str(detail), details_id)
+
+
 def _build_generic(ast: dict[str, Any], parent_id: str, nodes: list[TreeNode]) -> None:
     root_id = _add(nodes, ast.get("type", "UNKNOWN"), parent_id)
     for key, val in ast.items():
@@ -178,6 +199,7 @@ _BUILDERS = {
     "DROP":   _build_drop,
     "INSERT": _build_insert,
     "UPDATE": _build_update,
+    "ERROR":  _build_error,
 }
 
 
@@ -273,6 +295,32 @@ def _text_update(ast: dict, lines: list, prefix: str, is_last: bool) -> None:
         lines.append(f"{p}{_SPACE}{_LAST}{w['column']}  {w['operator']}  {w['value']}")
 
 
+def _text_error(ast: dict, lines: list, prefix: str, is_last: bool) -> None:
+    conn = _LAST if is_last else _BRANCH
+    lines.append(f"{prefix}{conn}ErrorNode")
+    p = prefix + (_SPACE if is_last else _PIPE)
+    lines.append(f"{p}{_BRANCH}Phase  →  {ast.get('phase', 'Unknown')}")
+    lines.append(f"{p}{_BRANCH}Message  →  {ast.get('message', 'Compilation failed')}")
+
+    invalid_tokens = ast.get("invalid_tokens", [])
+    details = ast.get("details", [])
+    if invalid_tokens:
+        token_conn = _LAST if not details else _BRANCH
+        lines.append(f"{p}{token_conn}Invalid Tokens")
+        tp = p + (_SPACE if not details else _PIPE)
+        for i, tok in enumerate(invalid_tokens):
+            last = (i == len(invalid_tokens) - 1)
+            lines.append(
+                f"{tp}{_LAST if last else _BRANCH}InvalidTokenNode  →  "
+                f"{tok.get('lexeme', '?')!r}  ({tok.get('token_type', 'UNKNOWN')}, {tok.get('line_col', '?')})"
+            )
+    if details:
+        lines.append(f"{p}{_LAST}Details")
+        dp = p + _SPACE
+        for i, detail in enumerate(details):
+            lines.append(f"{dp}{_LAST if i == len(details)-1 else _BRANCH}{detail}")
+
+
 def _text_generic(ast: dict, lines: list, prefix: str, is_last: bool) -> None:
     conn = _LAST if is_last else _BRANCH
     lines.append(f"{prefix}{conn}{ast.get('type','UNKNOWN')}")
@@ -289,4 +337,5 @@ _TEXT_BUILDERS = {
     "DROP":   _text_drop,
     "INSERT": _text_insert,
     "UPDATE": _text_update,
+    "ERROR":  _text_error,
 }
